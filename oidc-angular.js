@@ -20,7 +20,7 @@ var silentRefreshTimeoutEvent =  eventPrefix + 'silentRefreshTimeout';
 // Module registrarion
 var oidcmodule = angular.module('oidc-angular', ['base64', 'ngStorage', 'ngRoute']);
 
-oidcmodule.config(['$httpProvider', '$routeProvider', function($httpProvider, $routeProvider) {
+oidcmodule.config(['$httpProvider', '$routeProvider', '$log', function($httpProvider, $routeProvider, $log) {
     $httpProvider.interceptors.push('oidcHttpInterceptor');
     
     // Register callback route
@@ -28,19 +28,19 @@ oidcmodule.config(['$httpProvider', '$routeProvider', function($httpProvider, $r
         when('/auth/callback/:data', {
             template: '',
             controller: ['$auth', '$routeParams', function ($auth, $routeParams) {
-                console.debug('oidc-angular: handling login-callback');
+                $log.debug('oidc-angular: handling login-callback');
                 $auth.handleSignInCallback($routeParams.data);
             }]
         }).
         when('/auth/clear', {
             template: '',
             controller: ['$auth', function ($auth) {
-                console.debug('oidc-angular: handling logout-callback');
+                $log.debug('oidc-angular: handling logout-callback');
                 $auth.handleSignOutCallback();
             }]
         });        
         
-    console.debug('oidc-angular: callback routes registered.')
+    $log.debug('oidc-angular: callback routes registered.')
 }]);
 
 oidcmodule.factory('oidcHttpInterceptor', ['$rootScope', '$q', '$auth', 'tokenService', function($rootScope, $q, $auth, tokenService) {
@@ -110,7 +110,7 @@ oidcmodule.factory('oidcHttpInterceptor', ['$rootScope', '$q', '$auth', 'tokenSe
       };
     }]);
 
-oidcmodule.service('tokenService', ['$base64', '$localStorage', function ($base64, $localStorage) {
+oidcmodule.service('tokenService', ['$base64', '$localStorage', '$log', function ($base64, $localStorage, $log) {
 
     var service = this;
 
@@ -173,12 +173,12 @@ oidcmodule.service('tokenService', ['$base64', '$localStorage', function ($base6
         
         // Substract margin, because browser time could be a bit in the past
         if (issuedAtMSec - marginMSec > now) {
-            console.log('oidc-connect: Token is not yet valid!')
+            $log.log('oidc-connect: Token is not yet valid!')
             return false
         }
         
         if (expiresAtMSec < now) {
-            console.log('oidc-connect: Token has expired!')
+            $log.log('oidc-connect: Token has expired!')
             return false;
         }
         
@@ -242,7 +242,7 @@ oidcmodule.provider("$auth", ['$routeProvider', function ($routeProvider) {
         },
         
         // Service itself
-        $get: ['$q', '$document', '$rootScope', '$localStorage', '$location', 'tokenService', function ($q, $document, $rootScope, $localStorage, $location, tokenService) {
+        $get: ['$q', '$document', '$rootScope', '$localStorage', '$location', '$log', 'tokenService', function ($q, $document, $rootScope, $localStorage, $location, $log, tokenService) {
         
             var init = function() {
                 
@@ -402,10 +402,11 @@ oidcmodule.provider("$auth", ['$routeProvider', function ($routeProvider) {
                     fragments = parseQueryString(data);
                 }
                 else {
+                    $log.error("Unable to process callback. No data given!");
                     throw Error("Unable to process callback. No data given!");
                 }
             
-                console.debug("oidc-angular: Processing callback information", data);
+                $log.debug("oidc-angular: Processing callback information", data);
             
                 var id_token     = fragments['id_token'];
                 var state        = fragments['state'];
