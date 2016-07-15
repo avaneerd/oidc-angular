@@ -18,33 +18,33 @@
     var silentRefreshTimeoutEvent = eventPrefix + 'silentRefreshTimeout';
 
     // Module registrarion
-    var oidcmodule = angular.module('oidc-angular', ['base64', 'ngStorage', 'ngRoute']);
+    var oidcmodule = angular.module('oidc-angular', ['base64', 'ngStorage', 'ui.router']);
 
-    oidcmodule.config(['$httpProvider', '$routeProvider', '$locationProvider', function ($httpProvider, $routeProvider, $locationProvider) {
+    oidcmodule.config(['$httpProvider', '$stateProvider', '$locationProvider', function ($httpProvider, $stateProvider, $locationProvider) {
 
         var $log = angular.injector(['ng']).get('$log');
 
         $locationProvider.html5Mode(true);
-
         $httpProvider.interceptors.push('oidcHttpInterceptor');
 
         // Register callback route
-        $routeProvider.
-            when('/auth/callback/:data', {
+        $stateProvider
+            .state('authCallback', {
                 template: '',
-                controller: ['$auth', '$routeParams', '$log', function ($auth, $routeParams, $log) {
+                url: '/auth/callback/:data',
+                controller: ['$auth', '$stateParams', '$log', function ($auth, $stateParams, $log) {
                     $log.debug('oidc-angular: handling login-callback');
-                    $auth.handleSignInCallback($routeParams.data);
+                    $auth.handleSignInCallback($stateParams.data);
                 }]
-            }).
-            when('/auth/clear', {
+            })
+            .state('authSignout', {
                 template: '',
+                url: '/auth/goodbye',
                 controller: ['$auth', '$log', function ($auth, $log) {
                     $log.debug('oidc-angular: handling logout-callback');
                     $auth.handleSignOutCallback();
                 }]
             });
-
 
         $log.debug('oidc-angular: callback routes registered.')
     }]);
@@ -222,7 +222,7 @@
         }
     }]);
 
-    oidcmodule.provider("$auth", ['$routeProvider', function ($routeProvider) {
+    oidcmodule.provider("$auth", ['$stateProvider', function ($stateProvider) {
 
         // Default configuration
         var config = {
