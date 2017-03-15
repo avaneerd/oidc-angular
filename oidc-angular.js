@@ -1,6 +1,6 @@
-import 'angular-base64';
-import 'angular-storage';
-import 'angular-ui-router';
+require('angular-base64');
+require('angular-storage');
+require('angular-ui-router');
 
 var eventPrefix = 'oidcauth:';
 
