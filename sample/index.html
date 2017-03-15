@@ -7,12 +7,15 @@
         <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/ngStorage/0.3.10/ngStorage.js"></script>
         <script type="text/javascript" src="../oidc-angular.js"></script>
         <script type="text/javascript" src="angular-base64.js"></script>
+
+        <base href="/" />
     </head>
     
     <body ng-app="app" ng-controller="ApplicationController as vm">
         
         <button ng-click="vm.login()">Login</button>
         <button ng-click="vm.clear()">Clear Local Storage</button>
+        <button ng-click="vm.refresh()">Silent Refresh</button>
         
         <div ng-view> </div>
         
@@ -23,9 +26,12 @@
             appModule.config(['$authProvider', function($authProvider) {
                 
                 $authProvider.configure({
-                    basePath:               'http://demo-server.openidconnect.info',
-                    authorizationEndpoint : 'authorize',
-                    clientId:               '36e9e4b62933f528aa1edd9836cfe7776d7c401d1d52935157a0a5d133cbee0a'
+                    basePath:               'https://localhost:44356',
+                    authorizationEndpoint : 'connect/authorize',
+                    clientId:               'cxplocal',
+                    scope:                  'openid profile',
+                    redirect_uri:           'http://localhost:3000/auth/callback/',
+                    apiUrl:                 null
                 })
             }]);
             
@@ -41,6 +47,15 @@
                     console.log('[EventCallback]', '$auth.isAuthenticated', $auth.isAuthenticated());
                 });
 
+                $rootScope.$on('oidcauth:tokenExpires', function(e) {
+                    console.log('[EventCallback]', 'Event', e.name, e);
+                    console.log('[EventCallback]', 'token is expiring soon');
+                });
+
+                $rootScope.$on('oidcauth:silentRefreshStarted', function(e) {
+                    console.log('[EventCallback]', 'Event', e.name, e);
+                    console.log('[EventCallback]', 'silent refresh started');
+                });
 
                 vm.login = function() {
                     $auth.signIn();
@@ -48,6 +63,10 @@
                 
                 vm.clear = function() {
                     $localStorage.$reset();
+                }
+
+                vm.refresh = function() {
+                    $auth.silentRefresh();
                 }
             }]);
             

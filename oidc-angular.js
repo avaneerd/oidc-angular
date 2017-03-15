@@ -13,7 +13,6 @@
     var loggedOutEvent = eventPrefix + 'loggedOut';
 
     var silentRefreshStartedEvent = eventPrefix + 'silentRefreshStarted';
-    var silentInitRefreshStartedEvent = eventPrefix + 'silentInitRefreshStarted';
     var silentRefreshSuceededEvent = eventPrefix + 'silentRefreshSucceded';
     var silentRefreshFailedEvent = eventPrefix + 'silentRefreshFailed';
     var silentRefreshTimeoutEvent = eventPrefix + 'silentRefreshTimeout';
@@ -21,29 +20,36 @@
     require('angular-base64');
     require('angular-storage');
     require('angular-ui-router');
-
     // Module registrarion
-    var oidcmodule = angular.module('oidc-angular', ['base64', 'ngStorage', 'ngRoute']);
+    var oidcmodule = angular.module('oidc-angular', ['base64', 'ngStorage', 'ui.router']);
 
-    oidcmodule.config(['$httpProvider', '$routeProvider', function ($httpProvider, $routeProvider) {
+    oidcmodule.config(['$httpProvider', '$stateProvider', '$locationProvider', function ($httpProvider, $stateProvider, $locationProvider) {
+
+        var $log = angular.injector(['ng']).get('$log');
+
+        $locationProvider.html5Mode(true);
         $httpProvider.interceptors.push('oidcHttpInterceptor');
 
         // Register callback route
-        $routeProvider.when('/auth/callback/:data', {
-            template: '',
-            controller: ['$auth', '$routeParams', function ($auth, $routeParams) {
-                console.debug('oidc-angular: handling login-callback');
-                $auth.handleSignInCallback($routeParams.data);
-            }]
-        }).when('/auth/clear', {
-            template: '',
-            controller: ['$auth', function ($auth) {
-                console.debug('oidc-angular: handling logout-callback');
-                $auth.handleSignOutCallback();
-            }]
-        });
+        $stateProvider
+            .state('authCallback', {
+                template: '',
+                url: '/auth/callback/:data',
+                controller: ['$auth', '$stateParams', '$log', function ($auth, $stateParams, $log) {
+                    $log.debug('oidc-angular: handling login-callback');
+                    $auth.handleSignInCallback($stateParams.data);
+                }]
+            })
+            .state('authSignout', {
+                template: '',
+                url: '/auth/goodbye',
+                controller: ['$auth', '$log', function ($auth, $log) {
+                    $log.debug('oidc-angular: handling logout-callback');
+                    $auth.handleSignOutCallback();
+                }]
+            });
 
-        console.debug('oidc-angular: callback routes registered.')
+        $log.debug('oidc-angular: callback routes registered.')
     }]);
 
     oidcmodule.factory('oidcHttpInterceptor', ['$rootScope', '$q', '$auth', 'tokenService', function ($rootScope, $q, $auth, tokenService) {
@@ -51,7 +57,11 @@
 
             'request': function (request) {
 
-                if (request.url.startsWith($auth.config.apiUrl)) {
+                if ($auth.config.apiUrl === null) {
+                    var token = tokenService.getIdToken();
+                    request.headers['Authorization'] = 'Bearer ' + token;
+                }
+                else if (request.url.startsWith($auth.config.apiUrl)) {
 
                     var appendBearer = false;
 
@@ -62,11 +72,11 @@
                                 appendBearer = true;
                             }
                             else {
-                                $rootScope.$broadcast(tokenExpiredEvent, {request: request});
+                                $rootScope.$broadcast(tokenExpiredEvent, { request: request });
                             }
                         }
                         else {
-                            $rootScope.$broadcast(tokenMissingEvent, {request: request});
+                            $rootScope.$broadcast(tokenMissingEvent, { request: request });
                         }
                     }
                     else {
@@ -95,15 +105,15 @@
                 if (response.status == 401) {
                     if (!tokenService.hasToken()) {
                         // There was probably no token attached, because there is none
-                        $rootScope.$broadcast(tokenMissingEvent, {response: response});
+                        $rootScope.$broadcast(tokenMissingEvent, { response: response });
                     }
                     else if (!tokenService.hasValidToken()) {
                         // Seems the token is not valid anymore
-                        $rootScope.$broadcast(tokenExpiredEvent, {response: response});
+                        $rootScope.$broadcast(tokenExpiredEvent, { response: response });
                     }
                     else {
                         // any other
-                        $rootScope.$broadcast(unauthorizedEvent, {response: response});
+                        $rootScope.$broadcast(unauthorizedEvent, { response: response });
                     }
                 }
 
@@ -112,7 +122,7 @@
         };
     }]);
 
-    oidcmodule.service('tokenService', ['$base64', '$localStorage', function ($base64, $localStorage) {
+    oidcmodule.service('tokenService', ['$base64', '$localStorage', '$log', function ($base64, $localStorage, $log) {
 
         var service = this;
 
@@ -132,23 +142,34 @@
             var claimsBase64 = padBase64(raw);
             var claimsJson = $base64.decode(claimsBase64);
 
-            return JSON.parse(claimsJson);
+            var claims = JSON.parse(claimsJson);
+
+            return claims;
         };
 
         service.convertToClaims = function (id_token) {
             var payload = service.getPayloadFromRawToken(id_token);
-            return service.deserializeClaims(payload);
+            var claims = service.deserializeClaims(payload);
+
+            return claims;
         };
 
         service.saveToken = function (id_token) {
-            service.clearTokens();
             $localStorage['idToken'] = id_token;
-            $localStorage.$apply();
+
+            var idClaims = service.convertToClaims(id_token);
+            $localStorage['cached-claims'] = idClaims;
         };
 
         service.hasToken = function () {
+
             var claims = service.allClaims();
-            return claims && claims.hasOwnProperty("iat") && claims.hasOwnProperty('exp');
+
+            if (!(claims && claims.hasOwnProperty("iat") && claims.hasOwnProperty('exp'))) {
+                return false;
+            }
+
+            return true;
         };
 
         service.hasValidToken = function () {
@@ -163,17 +184,17 @@
 
             // Substract margin, because browser time could be a bit in the past
             if (issuedAtMSec - marginMSec > now) {
-                console.log('oidc-connect: Token is not yet valid!');
+                $log.log('oidc-connect: Token is not yet valid!')
                 return false
             }
 
             if (expiresAtMSec < now) {
-                console.log('oidc-connect: Token has expired!');
+                $log.log('oidc-connect: Token has expired!')
                 return false;
             }
 
             return true;
-        };
+        }
 
         service.allClaims = function () {
             var cachedClaims = $localStorage['cached-claims'];
@@ -182,28 +203,29 @@
                 var id_token = service.getIdToken();
 
                 if (id_token) {
-                    cachedClaims = service.convertToClaims(id_token);
-                    $localStorage['cached-claims'] = cachedClaims;
+                    var claims = service.convertToClaims(id_token);
+
+                    var idClaims = service.convertToClaims(id_token);
+                    $localStorage['cached-claims'] = idClaims;
+
+                    return claims;
                 }
             }
+
             return cachedClaims;
         };
 
         service.getIdToken = function () {
-            if ($localStorage['refreshRunning']) {
-                $localStorage.$sync();
-            }
             return $localStorage['idToken'];
         };
 
         service.clearTokens = function () {
-            $localStorage['cached-claims'] = false;
-            $localStorage['idToken'] = false;
+            delete $localStorage['cached-claims'];
+            delete $localStorage['idToken'];
         }
     }]);
 
-    //noinspection JSUnusedLocalSymbols
-    oidcmodule.provider("$auth", ['$routeProvider', function ($routeProvider) {
+    oidcmodule.provider("$auth", ['$stateProvider', function ($stateProvider) {
 
         // Default configuration
         var config = {
@@ -231,46 +253,19 @@
             },
 
             // Service itself
-            $get: ['$timeout', '$q', '$document', '$rootScope', '$localStorage', '$location', 'tokenService', function ($timeout, $q, $document, $rootScope, $localStorage, $location, tokenService) {
+            $get: ['$q', '$document', '$rootScope', '$localStorage', '$location', '$log', 'tokenService', function ($q, $document, $rootScope, $localStorage, $location, $log, tokenService) {
 
                 var init = function () {
 
                     if ($localStorage['logoutActive']) {
                         delete $localStorage['logoutActive'];
+
                         tokenService.clearTokens();
                     }
 
                     if ($localStorage['refreshRunning']) {
                         delete $localStorage['refreshRunning'];
                     }
-                    if ($localStorage['validateExpirityLoopRunning']) {
-                        delete $localStorage['validateExpirityLoopRunning'];
-                    }
-                    if (window === window.parent && config.advanceRefresh) {
-                        if (tokenService.hasToken()) {
-                            if (!tokenService.hasValidToken()) {
-                                $rootScope.$broadcast(silentInitRefreshStartedEvent);
-                                trySilentRefresh();
-                            } else {
-                                validateExpirityLoop();
-                            }
-                        }
-                    }
-                };
-
-                var validateExpirityLoop = function(){
-                    if ($localStorage['validateExpirityLoopRunning']) {
-                        return;
-                    }
-                    $localStorage['validateExpirityLoopRunning'] = true;
-                    var f = function() {
-                        if (!$localStorage['validateExpirityLoopRunning']) {
-                            return;
-                        }
-                        validateExpirity();
-                        $timeout(f, config.advanceRefresh*1000);
-                    };
-                    f();
                 };
 
                 var createLoginUrl = function (nonce, state) {
@@ -314,7 +309,7 @@
                     var appendChar = (hasPathDelimiter) ? '' : '/';
 
                     var baseUrl = config.basePath + appendChar;
-                    return baseUrl + config.endSessionEndpoint
+                    var url = baseUrl + config.endSessionEndpoint
                         + "?id_token_hint="
                         + encodeURIComponent(idToken)
                         + "&post_logout_redirect_uri="
@@ -322,7 +317,8 @@
                         + "&state="
                         + encodeURIComponent(state || config.state)
                         + "&r=" + Math.random();
-                };
+                    return url;
+                }
 
                 var startImplicitFlow = function (localRedirect) {
 
@@ -335,12 +331,8 @@
                 var startLogout = function () {
                     var url = createLogoutUrl();
                     $localStorage['logoutActive'] = true;
-                    $localStorage['validateExpirityLoopRunning'] = false;
-                    $localStorage.$apply();
 
-                    $timeout(function() {
-                        window.location.replace(url);
-                    }, 100);
+                    window.location.replace(url);
                 };
 
                 var handleImplicitFlowCallback = function (id_token) {
@@ -357,29 +349,29 @@
                     else {
                         $location.path('/');
                     }
-                    if (tokenService.hasValidToken()) {
-                        validateExpirityLoop();
-                    }
 
                     $rootScope.$broadcast(loggedInEvent);
                     return true;
                 };
 
                 var handleSilentRefreshCallback = function (newIdToken) {
-                    var currentClaims = tokenService.allClaims();
-                    var event;
-                    var newClaims = tokenService.convertToClaims(newIdToken);
 
-                    if (!currentClaims || (currentClaims.exp && newClaims.exp && newClaims.exp > currentClaims.exp)) {
-                        tokenService.saveToken(newIdToken, newIdToken);
-                        event = silentRefreshSuceededEvent;
+                    delete $localStorage['refreshRunning'];
+
+                    var currentIdToken = tokenService.getIdToken();
+                    var currentClaims = tokenService.allClaims();
+
+                    var newClaims = tokenService.convertToClaims(newIdToken)
+
+                    if (currentClaims.exp && newClaims.exp && newClaims.exp > currentClaims.exp) {
+
+                        tokenService.saveToken(newIdToken);
+
+                        $rootScope.$broadcast(silentRefreshSuceededEvent);
                     }
                     else {
-                        event = silentRefreshFailedEvent;
+                        $rootScope.$broadcast(silentRefreshFailedEvent);
                     }
-                    $localStorage['refreshRunning'] = false;
-                    $localStorage.$apply();
-                    $rootScope.$broadcast(event);
                 };
 
                 var trySilentRefresh = function () {
@@ -389,30 +381,24 @@
                     }
 
                     $localStorage['refreshRunning'] = true;
-                    $localStorage.$apply();
 
-                    $timeout(function () {
-                        $rootScope.$broadcast(silentRefreshStartedEvent);
+                    $rootScope.$broadcast(silentRefreshStartedEvent);
 
-                        var url = createLoginUrl('dummynonce', 'refresh');
+                    var url = createLoginUrl('dummynonce', 'refresh');
 
-                        var html = "<iframe src='" + url + "' height='400' width='100%' id='oauthFrame' style='display:none;visibility:hidden;'></iframe>";
-                        var elem = angular.element(html);
-                        $document.find("body").append(elem);
-                        $timeout(function () {
-                            $localStorage.$sync();
-                            if ($localStorage['refreshRunning']) {
-                                delete $localStorage['refreshRunning'];
-                                $rootScope.$broadcast(silentRefreshTimeoutEvent);
-                            }
+                    var html = "<iframe src='" + url + "' height='400' width='100%' id='oauthFrame' style='display:none;visibility:hidden;'></iframe>";
+                    var elem = angular.element(html);
 
-                            if (tokenService.hasValidToken()) {
-                                validateExpirityLoop();
-                            }
-                            $document.find("#oauthFrame").remove();
-                        }, 30000);
-                    });
+                    $document.find("body").append(elem);
 
+                    setTimeout(function () {
+                        if ($localStorage['refreshRunning']) {
+                            $rootScope.$broadcast(silentRefreshTimeoutEvent);
+                            delete $localStorage['refreshRunning']
+                        }
+
+                        $document.find("#oauthFrame").remove();
+                    }, 5000);
                 };
 
 
@@ -422,15 +408,16 @@
                         data = window.location.hash.substr(16)
                     }
 
-                    var fragments = {};
+                    var fragments = {}
                     if (data) {
                         fragments = parseQueryString(data);
                     }
                     else {
+                        $log.error("Unable to process callback. No data given!");
                         throw Error("Unable to process callback. No data given!");
                     }
 
-                    console.debug("oidc-angular: Processing callback information", data);
+                    $log.debug("oidc-angular: Processing callback information", data);
 
                     var id_token = fragments['id_token'];
                     var state = fragments['state'];
@@ -448,7 +435,6 @@
                 var handleSignOutCallback = function () {
 
                     delete $localStorage['logoutActive'];
-                    delete $localStorage['validateExpirityLoopRunning'];
 
                     tokenService.clearTokens();
                     $location.path('/');
@@ -459,19 +445,22 @@
                 var tokenIsValidAt = function (date) {
                     var claims = tokenService.allClaims();
 
-                    if (!claims || !(claims.hasOwnProperty('exp'))) {
-                        return false;
-                    }
-
                     var expiresAtMSec = claims.exp * 1000;
 
-                    return date <= expiresAtMSec;
-                };
+                    if (date <= expiresAtMSec) {
+                        return true;
+                    }
+
+                    return false;
+                }
 
                 var validateExpirity = function () {
+                    if (!tokenService.hasToken()) return;
+                    if (!tokenService.hasValidToken()) return;
+
                     var now = Date.now();
 
-                    if (!tokenService.hasValidToken() || !tokenIsValidAt(now + config.advanceRefresh*1000)) {
+                    if (!tokenIsValidAt(now + config.advanceRefresh)) {
                         $rootScope.$broadcast(tokenExpiresSoonEvent);
                         trySilentRefresh();
                     }
@@ -479,7 +468,6 @@
 
                 init();
 
-                //noinspection JSUnusedGlobalSymbols
                 return {
                     config: config,
 
@@ -546,7 +534,7 @@
         }
 
         return data;
-    }
+    };
 
 
     if (!String.prototype.endsWith) {
