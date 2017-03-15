@@ -18,6 +18,10 @@
     var silentRefreshFailedEvent = eventPrefix + 'silentRefreshFailed';
     var silentRefreshTimeoutEvent = eventPrefix + 'silentRefreshTimeout';
 
+    require('angular-base64');
+    require('angular-storage');
+    require('angular-ui-router');
+
     // Module registrarion
     var oidcmodule = angular.module('oidc-angular', ['base64', 'ngStorage', 'ngRoute']);
 

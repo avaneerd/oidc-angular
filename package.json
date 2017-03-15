@@ -15,5 +15,10 @@
   "bugs": {
     "url": "https://github.com/avaneerd/oidc-angular/issues"
   },
-  "homepage": "https://github.com/avaneerd/oidc-angular#readme"
+  "homepage": "https://github.com/avaneerd/oidc-angular#readme",
+  "dependencies": {
+    "angular-base64": "^2.0.5",
+    "angular-storage": "0.0.15",
+    "angular-ui-router": "^1.0.0-rc.1"
+  }
 }
