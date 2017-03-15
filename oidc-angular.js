@@ -1,7 +1,3 @@
-require('angular-base64');
-require('angular-storage');
-require('angular-ui-router');
-
 var eventPrefix = 'oidcauth:';
 
 var unauthorizedEvent = eventPrefix + 'unauthorized';
